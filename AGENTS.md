@@ -9,7 +9,7 @@
 
 ## Executar e verificar
 
-O projeto usa Next.js, React e TypeScript. No Windows PowerShell, use `npm.cmd` para evitar bloqueios de execução do script `npm.ps1`:
+O projeto usa Next.js 16, React e TypeScript. No Windows PowerShell, use `npm.cmd` para evitar bloqueios de execução do script `npm.ps1`:
 
 ```powershell
 npm.cmd install
@@ -17,7 +17,7 @@ npm.cmd run dev
 npm.cmd run build
 ```
 
-O desenvolvimento local abre em `http://localhost:3000`. A compilação de produção foi concluída com sucesso antes da criação deste documento. Não há testes automatizados configurados.
+O desenvolvimento local abre em `http://localhost:3000`. O Next.js usa Turbopack por padrão. Não há testes automatizados configurados.
 
 ## Onde ficam as partes principais
 
@@ -25,7 +25,9 @@ O desenvolvimento local abre em `http://localhost:3000`. A compilação de produ
 - `src/app/globals.css`: apresentação responsiva e estilos de todas as telas.
 - `src/app/layout.tsx`: idioma e metadados globais.
 - `src/lucide-react.d.ts`: declaração de tipos usada pelos ícones Lucide nesta configuração.
-- `supabase/migrations/202611230001_initial_schema.sql`: esquema inicial PostgreSQL/Supabase, funções, gatilhos e políticas RLS.
+- `supabase/migrations/`: esquema PostgreSQL/Supabase, funções, gatilhos e políticas RLS versionadas.
+- `supabase/tests/`: verificações pgTAP de privilégios e comportamento RLS no banco local.
+- `SECURITY_REVIEW_LGPD.md`: revisão do estado de privacidade, controles feitos e bloqueios antes de dados reais.
 - `README.md`: recursos disponíveis, execução e limitações do protótipo.
 - `.env.example`: nomes das variáveis públicas necessárias para futura configuração do Supabase; não contém credenciais.
 
@@ -40,7 +42,11 @@ O desenvolvimento local abre em `http://localhost:3000`. A compilação de produ
 
 ## Estado da integração com Supabase
 
-A migração ainda não foi aplicada, e a aplicação não consulta o Supabase. Antes de conectar um projeto real:
+A migração inicial e a migração de endurecimento de privacidade foram aplicadas e validadas apenas no Supabase local. Testes pgTAP estão em `supabase/tests/`; execute `npx.cmd supabase test db` com os serviços locais iniciados. A aplicação ainda não consulta esse banco. Para iniciar os serviços essenciais no Windows, com o Docker Desktop aberto, use `npx.cmd supabase start -x logflare,vector`; o Vector não consegue acessar o endpoint do Docker nesta configuração. O banco, a API e o Studio continuam disponíveis. O endereço do Studio é `http://127.0.0.1:54323`; a API usa `http://127.0.0.1:54321`. `npx.cmd supabase stop` preserva o volume local, e `npx.cmd supabase db reset` recria o banco local e apaga os dados nele. Não há projeto remoto vinculado.
+
+**Não usar dados pessoais reais.** A revisão em `SECURITY_REVIEW_LGPD.md` documenta o escopo, controles, lacunas e referências oficiais. Migrações e testes locais não provam conformidade legal nem substituem revisão independente; não aplicar a um banco remoto sem análise e confirmação do projeto alvo.
+
+Antes de conectar um projeto real:
 
 1. Obtenha as credenciais do projeto e configure-as localmente, sem adicioná-las ao Git.
 2. Revise a migração inteira e aplique-a somente a um projeto novo ou após analisar o esquema existente.
@@ -57,4 +63,5 @@ Outras integrações ainda não implementadas: envio de e-mail, armazenamento se
 - Mantenha salário obrigatório ao publicar vaga e consentimento explícito antes de compartilhar o perfil em uma candidatura.
 - Não transforme pontuação heurística em decisão eliminatória automática.
 - Atualize esta orientação e o `README.md` quando mudar arquitetura, comandos ou limites funcionais.
+- Preserve consentimento específico por finalidade, princípio do menor privilégio e aviso de dados demonstrativos; não trate consentimento registrado no banco como prova automática de validade jurídica.
 - Depois de mudanças no código, execute `npm.cmd run build` para conferir compilação e tipos. Não invente credenciais nem aplique a migração sem acesso e revisão do ambiente correto.

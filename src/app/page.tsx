@@ -10,16 +10,21 @@ import {
 } from "lucide-react";
 
 /**
- * Tipos compartilhados pela interface e pelo armazenamento local. O protótipo
- * usa identificadores numéricos para os dados de exemplo; a migração Supabase
- * define UUIDs para a futura versão multiusuário.
+ * Modelo visual de uma oportunidade. Os campos de status e benefícios são
+ * opcionais porque as vagas pré-carregadas não precisam de todos os dados do
+ * formulário de publicação. Os identificadores são locais, não UUIDs do banco.
  */
 type Job = {
   id: number; role: string; company: string; initials: string; color: string; location: string;
   mode: "Remoto" | "Híbrido" | "Presencial"; level: string; salary: string; posted: string;
   tags: string[]; match: number; featured?: boolean; description: string; status?: "Ativa" | "Pausada" | "Encerrada"; benefits?: string;
 };
+/**
+ * Registro local que liga uma pessoa demonstrativa a uma vaga e acompanha o
+ * processo. Os campos de feedback e nome são preenchidos pelos fluxos locais.
+ */
 type Application = { jobId: number; status: string; date: string; feedback?: string; applicantName?: string; recruiterNote?: string };
+/** Campos do perfil demonstrativo usados em busca, candidatura e edição. */
 type Profile = { name: string; role: string; city: string; salary: string; skills: string[]; education: string; experience: string; bio: string; visible: boolean };
 
 /** Perfil ilustrativo usado para apresentar campos ao abrir a demonstração.
@@ -60,23 +65,33 @@ function load<T>(key: string, fallback: T): T {
  * É uma regra explicável de protótipo, não uma avaliação validada para seleção.
  */
 function calculateMatch(job: Job, profile: Profile) {
+  // Compara listas em minúsculas e sem espaços periféricos para que diferenças
+  // simples de capitalização não alterem a estimativa de compatibilidade.
   const candidateSkills = profile.skills.map(s => s.trim().toLowerCase()).filter(Boolean);
   const jobSkills = job.tags.map(s => s.trim().toLowerCase()).filter(Boolean);
+  // Mede quantas competências desejadas aparecem no perfil; sem requisitos,
+  // usa 50% neutros para não transformar falta de dados em resultado extremo.
   const skillScore = jobSkills.length ? jobSkills.filter(skill => candidateSkills.some(candidate => candidate.includes(skill) || skill.includes(candidate))).length / jobSkills.length : 0.5;
+  // Favorece trabalho remoto e localizações compatíveis com a cidade informada.
   const modeScore = !profile.city ? 0.5 : (job.mode === "Remoto" || job.location.toLowerCase().includes("brasil") || job.location.toLowerCase().includes(profile.city.split(",")[0].toLowerCase())) ? 1 : 0.25;
+  // Lê o primeiro valor numérico da faixa para fazer uma aproximação salarial.
   const candidateSalary = Number(profile.salary.match(/[\d.]+/)?.[0].replace(/\./g, "")) || 0;
   const offeredSalary = Number(job.salary.match(/[\d.]+/)?.[0].replace(/\./g, "")) || 0;
   const salaryScore = !candidateSalary || !offeredSalary ? 0.5 : offeredSalary >= candidateSalary ? 1 : Math.max(0, offeredSalary / candidateSalary);
+  // Confere se o primeiro termo do cargo desejado aparece no cargo ou nas tags.
   const titleScore = `${job.role} ${job.tags.join(" ")}`.toLowerCase().includes(profile.role.split(" ")[0].toLowerCase()) ? 1 : 0.5;
+  // Aplica os pesos documentados acima e limita o retorno a um percentual inteiro.
   return Math.round((skillScore * 0.6 + modeScore * 0.15 + salaryScore * 0.15 + titleScore * 0.1) * 100);
 }
 
 export default function Home() {
   // Estado de navegação e conteúdo em memória. A permanência entre visitas é
   // feita em localStorage; não há sessão autenticada nem sincronização remota.
+  // Define qual tela de entrada ou painel deve ser mostrado e qual papel está ativo.
   const [entered, setEntered] = useState(false);
   const [entryMode, setEntryMode] = useState<"choose" | "candidate" | "employer">("choose");
   const [active, setActive] = useState("home");
+  // Registros e filtros que alimentam os painéis de candidato e empresa.
   const [applications, setApplications] = useState<Application[]>(initialApps);
   const [saved, setSaved] = useState<number[]>([2]);
   const [query, setQuery] = useState("");
@@ -85,20 +100,27 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  // Dados editáveis do candidato e da empresa no navegador atual.
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [editing, setEditing] = useState(false);
   const [companyMode, setCompanyMode] = useState(false);
   const [posted, setPosted] = useState<Job[]>([]);
   const [showNewJob, setShowNewJob] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  // Controles de privacidade e autoavaliação, sempre tratados como dados locais.
   const [privacyConsent, setPrivacyConsent] = useState(false);
   const [employer, setEmployer] = useState({ name: "Equipe Acme", website: "", description: "" });
   const [showAssessment, setShowAssessment] = useState(false);
   const [assessmentResults, setAssessmentResults] = useState<{skill:string;score:number;date:string}[]>([]);
+  // Rótulo de data calculado após montar a página para não divergir no SSR.
+  const [todayLabel, setTodayLabel] = useState("");
 
   // Restaura os dados guardados neste navegador depois da hidratação do React.
   // O fallback inicial deixa a página renderizável também no servidor Next.js.
   useEffect(() => {
+    // Atualiza a data no navegador, depois da renderização inicial, para evitar
+    // divergência entre a pré-renderização estática e o relógio do cliente.
+    setTodayLabel(new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "long" }).format(new Date()).toLocaleUpperCase("pt-BR"));
     setEntered(load("ec-demo-entered", false));
     setApplications(load("ec-applications", initialApps));
     setSaved(load("ec-saved", [2]));
@@ -109,10 +131,12 @@ export default function Home() {
     setAssessmentResults(load("ec-assessments", []));
   }, []);
   // Estas ações mantêm estado visual e cópia persistente do mesmo dado local.
+  // Salva candidaturas na memória React e na chave persistente correspondente.
   const persistApps = (next: Application[]) => { setApplications(next); localStorage.setItem("ec-applications", JSON.stringify(next)); };
   // Alterna a vaga salva e grava a lista completa para restaurá-la na próxima visita.
   const toggleSaved = (id: number) => { const next = saved.includes(id) ? saved.filter(x => x !== id) : [...saved, id]; setSaved(next); localStorage.setItem("ec-saved", JSON.stringify(next)); };
   // Exibe avisos transitórios sem navegar para outra tela.
+  // Mostra uma confirmação curta para ações locais sem interromper o fluxo.
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 3000); };
   // Registra uma candidatura local. O compartilhamento do perfil precisa estar
   // habilitado pelo próprio candidato e uma vaga não aceita inscrição duplicada.
@@ -129,10 +153,14 @@ export default function Home() {
   const visibleJobs = useMemo(() => allJobs.filter(j =>
     `${j.role} ${j.company} ${j.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()) && (mode === "Todas" || j.mode === mode)
   ).sort((a,b) => b.match-a.match), [allJobs, query, mode]);
+  // Localiza uma vaga nas amostras ou na lista criada pela empresa atual.
   const byId = (id: number) => [...jobs, ...posted].find(j => j.id === id);
   // Funções centralizadas de gravação para que as telas compartilhem os mesmos dados.
+  // Persiste alterações do perfil para que formulários e cartões usem o mesmo valor.
   const saveProfile = (next: Profile) => { setProfile(next); localStorage.setItem("ec-profile", JSON.stringify(next)); };
+  // Grava vagas criadas/alteradas pela empresa no armazenamento do navegador.
   const savePosted = (next: Job[]) => { setPosted(next); localStorage.setItem("ec-posted", JSON.stringify(next)); };
+  // Sincroniza o quadro de candidaturas e sua cópia persistente.
   const saveApplications = (next: Application[]) => { setApplications(next); localStorage.setItem("ec-applications", JSON.stringify(next)); };
   // Atualiza somente a candidatura indicada, preservando o restante do histórico.
   const changeApplication = (jobId: number, changes: Partial<Application>) => saveApplications(applications.map(app => app.jobId === jobId ? { ...app, ...changes } : app));
@@ -140,10 +168,12 @@ export default function Home() {
   const exportData = () => { const data = { exportedAt: new Date().toISOString(), profile, applications, savedJobs: saved, companyJobs: posted, assessments: assessmentResults, privacyConsent }; const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "emprego-certo-meus-dados.json"; link.click(); window.setTimeout(()=>URL.revokeObjectURL(url),1000); notify("Cópia dos seus dados baixada."); };
   // Limpa somente chaves pertencentes ao protótipo no navegador atual e pede
   // confirmação porque a operação remove candidaturas, vagas e perfil locais.
-  const deleteLocalData = () => { if (!window.confirm("Apagar os dados do Emprego Certo salvos neste navegador? Esta ação não pode ser desfeita.")) return; ["ec-profile","ec-applications","ec-saved","ec-posted","ec-privacy-consent","ec-employer","ec-assessments"].forEach(k=>localStorage.removeItem(k)); window.location.reload(); };
+  const deleteLocalData = () => { if (!window.confirm("Apagar os dados do Emprego Certo salvos neste navegador? Esta ação não pode ser desfeita.")) return; ["ec-profile","ec-applications","ec-saved","ec-posted","ec-privacy-consent","ec-employer","ec-assessments","ec-demo-entered"].forEach(k=>localStorage.removeItem(k)); window.location.reload(); };
   // Indicador de completude transparente: cada um dos oito campos preenchidos vale 12,5%.
+  // Cada um dos oito itens preenchidos representa a mesma fração do indicador.
   const profileCompletion = Math.round(([profile.name, profile.role, profile.city, profile.salary, profile.bio, profile.skills.length ? "skills" : "", profile.education, profile.experience].filter(Boolean).length / 8) * 100);
-  const statsResponded = applications.length ? Math.round(applications.filter(a => a.status !== "Inscrição enviada").length / applications.length * 100) : 100;
+  // Percentual ilustrativo de candidaturas que já avançaram da etapa inicial.
+  const statsResponded = applications.length ? Math.round(applications.filter(a => a.status !== "Inscrição enviada").length / applications.length * 100) : 0;
   // Entra em um dos espaços demonstrativos, atualiza o papel ativo e grava os
   // dados fornecidos no formulário. Isso não cria uma conta real nem autentica alguém.
   const enterDemo = (role: "candidate" | "employer", nextProfile?: Profile, nextEmployer?: typeof employer) => {
@@ -161,7 +191,7 @@ export default function Home() {
     <div className="shell">
       <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
         <a className="brand" href="#inicio" onClick={e => { e.preventDefault(); setActive("home"); }}><span className="brand-mark"><BriefcaseBusiness size={19} strokeWidth={2.5} /></span><span>emprego<span className="brand-light">certo</span><i>.</i></span></a>
-        <button className="workspace-switch" onClick={() => { setCompanyMode(!companyMode); setActive(companyMode ? "home" : "company"); }}><span className={`avatar ${companyMode ? "avatar-company" : ""}`}>{companyMode ? "EC" : "MF"}</span><span className="workspace-label"><b>{companyMode ? "Equipe Acme" : "Mariana Ferreira"}</b><small>{companyMode ? "Área da empresa" : "Área do candidato"}</small></span><ChevronDown size={16} /></button>
+        <button className="workspace-switch" onClick={() => { setCompanyMode(!companyMode); setActive(companyMode ? "home" : "company"); }}><span className={`avatar ${companyMode ? "avatar-company" : ""}`}>{companyMode ? employer.name.slice(0,2).toUpperCase() : profile.name.slice(0,2).toUpperCase()}</span><span className="workspace-label"><b>{companyMode ? employer.name : profile.name}</b><small>{companyMode ? "Área da empresa" : "Área do candidato"}</small></span><ChevronDown size={16} /></button>
         <div className="side-caption">MENU PRINCIPAL</div>
         <nav className="side-nav">{(companyMode ? [
           { key: "company", label: "Painel da empresa", icon: LayoutDashboard }, { key: "companyJobs", label: "Minhas vagas", icon: BriefcaseBusiness, count: String(posted.filter(j=>j.status!=="Encerrada").length) }, { key: "talents", label: "Candidatos", icon: Users }, { key: "reports", label: "Relatórios", icon: ChartNoAxesColumnIncreasing }, { key: "companyProfile", label: "Perfil da empresa", icon: Building2 },
@@ -171,10 +201,10 @@ export default function Home() {
       </aside>
       {mobileMenu && <button className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMobileMenu(false)} />}
       <main className="main-area">
-        <header className="topbar"><button className="mobile-menu-button icon-button" onClick={() => setMobileMenu(true)} aria-label="Abrir menu"><Menu size={19} /></button><div className="breadcrumb">Workspace <ChevronRight size={14} /> <b>{companyMode ? "Empresa" : "Candidato"}</b></div><div className="top-actions"><button className="top-help" onClick={() => notify("Estamos aqui para ajudar.")}><CircleHelp size={17} /> Ajuda</button><button className="notification-button icon-button" aria-label="Notificações" onClick={() => notify("Você está em dia com suas notificações.")}><Bell size={19} /><i /></button><div className="top-divider" /><button className="top-user" onClick={() => setActive("profile")}><span className="avatar avatar-small">MF</span><ChevronDown size={14} /></button></div></header>
+        <header className="topbar"><button className="mobile-menu-button icon-button" onClick={() => setMobileMenu(true)} aria-label="Abrir menu"><Menu size={19} /></button><div className="breadcrumb">Workspace <ChevronRight size={14} /> <b>{companyMode ? "Empresa" : "Candidato"}</b></div><div className="top-actions"><button className="top-help" onClick={() => notify("Estamos aqui para ajudar.")}><CircleHelp size={17} /> Ajuda</button><button className="notification-button icon-button" aria-label="Notificações" onClick={() => notify("Você está em dia com suas notificações.")}><Bell size={19} /><i /></button><div className="top-divider" /><button className="top-user" onClick={() => setActive(companyMode ? "companyProfile" : "profile")}><span className="avatar avatar-small">{(companyMode ? employer.name : profile.name).slice(0,2).toUpperCase()}</span><ChevronDown size={14} /></button></div></header>
         <div className="content">
           {/* Painel do candidato: resume candidaturas, perfil e vagas recomendadas com dados locais. */} {active === "home" && !companyMode && <>
-            <div className="welcome-row"><div><div className="eyebrow"><span className="live-dot" /> SEGUNDA-FEIRA, 23 DE NOVEMBRO</div><h1>Bom dia, {profile.name}! <span className="wave">✳</span></h1><p className="page-subtitle">Tem oportunidade nova esperando por você.</p></div><button className="outline-button" onClick={() => setActive("profile")}><UserRound size={16} /> Editar perfil</button></div>
+            <div className="welcome-row"><div><div className="eyebrow"><span className="live-dot" /> {todayLabel || "SEU PRÓXIMO PASSO PROFISSIONAL"}</div><h1>Bom dia, {profile.name}! <span className="wave">✳</span></h1><p className="page-subtitle">Tem oportunidade nova esperando por você.</p></div><button className="outline-button" onClick={() => setActive("profile")}><UserRound size={16} /> Editar perfil</button></div>
             <div className="hero-card"><div className="hero-content"><div className="hero-pill"><Sparkles size={13} /> SEU PRÓXIMO PASSO</div><h2>Oportunidades que<br />combinam com <em>você.</em></h2><p>Encontramos vagas alinhadas ao seu perfil, experiência e objetivos.</p><button className="hero-button" onClick={() => setActive("jobs")}>Explorar vagas <ArrowRight size={16} /></button></div><div className="hero-art" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="hero-circle"><Target size={48} strokeWidth={1.25}/></div><div className="floating-card floating-match"><span className="mini-check"><Check size={12}/></span><span><b>96% match</b><small>Analista de Dados</small></span></div><div className="floating-card floating-check"><span className="mini-brief"><BriefcaseBusiness size={15}/></span><span><b>Nova oportunidade</b><small>Seu perfil se destaca</small></span></div><span className="sparkle sparkle-a">✳</span><span className="sparkle sparkle-b">✳</span></div></div>
             <div className="stats-grid"><div className="stat-card"><span className="stat-icon stat-violet"><BriefcaseBusiness size={18}/></span><span className="stat-change positive"><ArrowUpRight size={13}/> +4 esta semana</span><b>{allJobs.filter(j=>j.match>=50).length}</b><small>vagas compatíveis</small></div><div className="stat-card"><span className="stat-icon stat-blue"><FileText size={18}/></span><span className="stat-change">em andamento</span><b>{applications.length.toString().padStart(2,"0")}</b><small>candidaturas ativas</small></div><div className="stat-card"><span className="stat-icon stat-green"><TrendingUp size={18}/></span><span className="stat-change positive"><ArrowUpRight size={13}/> +12% este mês</span><b>{profileCompletion}<span className="stat-unit">%</span></b><small>perfil completo</small><div className="progress-track"><span style={{width:profileCompletion+"%"}}/></div></div><div className="stat-card"><span className="stat-icon stat-amber"><BookmarkCheck size={18}/></span><span className="stat-change">para ver depois</span><b>{saved.length.toString().padStart(2,"0")}</b><small>vagas salvas</small></div></div>
             <section className="section-block"><div className="section-heading"><div><div className="section-kicker"><Sparkles size={13}/> FEITAS PARA VOCÊ</div><h2>Vagas em destaque</h2><p>Oportunidades com maior compatibilidade com seu perfil.</p></div><button className="text-link" onClick={() => setActive("jobs")}>Ver todas as vagas <ArrowRight size={15}/></button></div><div className="job-grid">{visibleJobs.slice(0,3).map(job => <JobCard key={job.id} job={job} saved={saved.includes(job.id)} applied={applications.some(a => a.jobId === job.id)} onSave={() => toggleSaved(job.id)} onOpen={() => setSelected(job)} />)}</div></section>
@@ -208,22 +238,42 @@ export default function Home() {
   );
 }
 
-/** Apresenta a marca textual da empresa com a cor associada à vaga. */
+/** Apresenta as iniciais e aplica a classe de cor definida na vaga. */
 function CompanyLogo({job}:{job:Job}) { return <span className={`company-logo logo-${job.color}`}>{job.initials}</span>; }
-/** Converte o status salvo em uma etiqueta visual consistente entre as telas. */
+/**
+ * Converte o texto de status em classes CSS para manter a mesma aparência nos
+ * painéis. Os status não reconhecidos usam o estilo padrão de etapa ativa.
+ */
 function Status({status}:{status:string}) { const cls=status==="Entrevista"?"status-interview":status==="Em análise"||status==="Pausada"?"status-analysis":status==="Inscrição enviada"||status==="Encerrada"?"status-sent":"status-active";return <span className={`status ${cls}`}><i/>{status}</span>; }
-/** Estado vazio reutilizável, com ação opcional para orientar o próximo passo. */
+/**
+ * Informa que uma lista ainda não tem registros e, quando fornecido, mostra um
+ * botão para levar a pessoa à próxima ação disponível naquela tela.
+ */
 function EmptyState({title,text,action,onAction}:{title:string;text:string;action?:string;onAction?:()=>void}) { return <div className="empty-state"><span><Search size={22}/></span><h3>{title}</h3><p>{text}</p>{action&&<button className="primary-button" onClick={onAction}>{action}<ArrowRight size={15}/></button>}</div>; }
-/** Cartão de vaga usado na busca, nos destaques e na lista de vagas salvas. */
+/**
+ * Cartão reutilizado nas listas de vagas. Recebe ações por propriedades para
+ * deixar busca, destaques e itens salvos compartilharem o mesmo componente.
+ */
 function JobCard({job,saved,applied,onSave,onOpen,horizontal=false}:{job:Job;saved:boolean;applied:boolean;onSave:()=>void;onOpen:()=>void;horizontal?:boolean}) { return <article className={`job-card ${horizontal?"job-horizontal":""}`}><div className="job-card-top"><CompanyLogo job={job}/><button className={`save-icon icon-button ${saved?"is-saved":""}`} onClick={onSave} aria-label={saved?"Remover vaga salva":"Salvar vaga"}><Heart size={17} fill={saved?"currentColor":"none"}/></button></div>{job.featured&&!horizontal&&<span className="featured-label"><Sparkles size={12}/> MATCH EM DESTAQUE</span>}<button className="job-card-title" onClick={onOpen}>{job.role}</button><div className="job-company-line">{job.company}<span>·</span>{job.level}</div><div className="job-location"><MapPin size={14}/>{job.location}<span>·</span>{job.mode}</div><div className="job-salary"><b>{job.salary}</b><span> · salário informado</span></div><div className="job-tags">{job.tags.slice(0,3).map(t=><span key={t}>{t}</span>)}</div>{horizontal&&<div className="horizontal-match"><div className="match-bar"><span style={{width:`${job.match}%`}}/></div><b>{job.match}% match</b></div>}<div className="job-card-footer"><span className="job-posted">{job.posted}</span><span className="match-label"><Sparkles size={12}/>{job.match}% compatível</span><button onClick={onOpen} className="job-open-button">{applied?"Candidatado":"Ver vaga"}<ArrowRight size={14}/></button></div></article>; }
 
-/** Formulário controlado para publicar ou editar vaga, com validação salarial. */
+/**
+ * Formulário controlado para criar ou editar vagas demonstrativas. Mantém os
+ * valores em estado local, valida título/descrição/salário e só então devolve
+ * a vaga pronta ao painel da empresa; nenhuma publicação vai para um servidor.
+ */
 function NewJobModal({initial,onClose,onCreate}:{initial?:Job|null;onClose:()=>void;onCreate:(job:Job)=>void}) {
+  // Pré-preenche os campos quando o modal recebe uma vaga existente; sem ela,
+  // inicia um rascunho remoto padrão que a empresa pode modificar.
   const [role,setRole]=useState(initial?.role||"");const [salary,setSalary]=useState(initial?.salary||"");const [location,setLocation]=useState(initial?.location||"Brasil");const [mode,setMode]=useState<Job["mode"]>(initial?.mode||"Remoto");const [level,setLevel]=useState(initial?.level||"Pleno");const [description,setDescription]=useState(initial?.description||"");const [tags,setTags]=useState(initial?.tags.join(", ")||"");const [benefits,setBenefits]=useState(initial?.benefits||"");const [error,setError]=useState("");
+  // No envio, impede publicação sem cargo, descrição ou salário positivo. Se
+  // houver dois valores salariais, exige que o limite superior seja maior.
   return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="new-job-modal" role="dialog" aria-modal="true"><div className="new-job-heading"><span className="stat-icon stat-violet"><Plus size={18}/></span><button className="icon-button" onClick={onClose}><X size={19}/></button><div><h2>{initial?"Editar vaga":"Publicar uma vaga"}</h2><p>Informe os detalhes para que as pessoas avaliem se a oportunidade combina com elas.</p></div></div><form onSubmit={e=>{e.preventDefault();const values=(salary.match(/\d[\d.]*/g)||[]).map(value=>Number(value.replace(/\./g,"")));if(!role.trim()||!description.trim()){setError("Preencha o cargo e a descrição da vaga.");return;}if(!values.length||values.some(value=>value<=0)||(values.length>1&&values[1]<values[0])){setError("Informe um salário válido ou uma faixa com valores crescentes.");return;}onCreate({id:initial?.id||Date.now(),role:role.trim(),company:initial?.company||"Equipe Acme",initials:initial?.initials||"EC",color:initial?.color||"blue",location,mode,level,salary:salary.trim(),posted:initial?.posted||"agora",tags:tags.split(",").map(t=>t.trim()).filter(Boolean),match:0,description:description.trim(),benefits,status:initial?.status||"Ativa"});}}><label>Título da vaga<input value={role} onChange={e=>setRole(e.target.value)} placeholder="Ex.: Analista de Produto" required/></label><div className="form-row"><label>Faixa salarial <span className="required-note">obrigatória</span><input value={salary} onChange={e=>setSalary(e.target.value)} placeholder="Ex.: R$ 5.000 – R$ 7.000" required/></label><label>Nível<select value={level} onChange={e=>setLevel(e.target.value)}><option>Estágio</option><option>Júnior</option><option>Pleno</option><option>Sênior</option><option>Liderança</option></select></label></div><div className="form-row"><label>Localização<input value={location} onChange={e=>setLocation(e.target.value)} placeholder="Cidade ou Brasil"/></label><label>Modalidade<select value={mode} onChange={e=>setMode(e.target.value as Job["mode"])}><option>Remoto</option><option>Híbrido</option><option>Presencial</option></select></label></div><label>Competências separadas por vírgulas<input value={tags} onChange={e=>setTags(e.target.value)} placeholder="Ex.: Excel, SQL, comunicação"/></label><label>Sobre a oportunidade<textarea value={description} onChange={e=>setDescription(e.target.value)} placeholder="Atividades, responsabilidades, requisitos obrigatórios e desejáveis." rows={4} required/></label><label>Benefícios<textarea value={benefits} onChange={e=>setBenefits(e.target.value)} placeholder="Ex.: vale-refeição, plano de saúde, auxílio home office." rows={2}/></label><div className="salary-required-note"><ShieldCheck size={15}/> A faixa salarial fica visível na publicação.</div>{error&&<div className="form-error">{error}</div>}<div className="new-job-actions"><button type="button" className="save-button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit">{initial?"Salvar alterações":"Publicar vaga"} <ArrowRight size={15}/></button></div></form></div></div>;
 }
 
-/** Perguntas curtas para prática pessoal; não são supervisionadas nem certificadas. */
+/**
+ * Perguntas fixas de prática de SQL. A ordem e o índice correto são usados pelo
+ * modal abaixo; o conteúdo é educativo e não representa certificação.
+ */
 const sqlQuestions = [
   { prompt: "Qual comando seleciona dados de uma tabela?", choices: ["SELECT", "PUSH", "FETCHFILE", "OPEN"], answer: 0 },
   { prompt: "Qual cláusula filtra linhas antes do agrupamento?", choices: ["ORDER BY", "WHERE", "JOIN", "AS"], answer: 1 },
@@ -232,18 +282,29 @@ const sqlQuestions = [
   { prompt: "Qual cláusula agrupa linhas por valores iguais?", choices: ["GROUP BY", "ORDER BY", "HAVING BY", "PARTITION"], answer: 0 },
 ];
 
-/** Quiz local: bloqueia avanço sem resposta e devolve uma pontuação para guardar. */
+/**
+ * Quiz local que exige uma escolha antes de avançar. Calcula a porcentagem de
+ * respostas corretas e entrega o resultado ao componente pai para persistência.
+ */
 function SkillAssessmentModal({onClose,onComplete}:{onClose:()=>void;onComplete:(score:number)=>void}) {
+  // Mantém uma resposta por pergunta; -1 significa que ainda não foi respondida.
   const [answers,setAnswers]=useState<number[]>(Array(sqlQuestions.length).fill(-1));
   const [question,setQuestion]=useState(0);
   const [finished,setFinished]=useState(false);
+  // Conta respostas idênticas ao gabarito e normaliza a soma como percentual.
   const score=Math.round(answers.filter((answer,index)=>answer===sqlQuestions[index].answer).length/sqlQuestions.length*100);
+  // Troca apenas a resposta da pergunta atual sem apagar as demais escolhas.
   const choose=(answer:number)=>setAnswers(current=>current.map((value,index)=>index===question?answer:value));
   return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="new-job-modal assessment-modal" role="dialog" aria-modal="true" aria-labelledby="assessment-title"><div className="new-job-heading"><span className="stat-icon stat-violet"><ChartNoAxesColumnIncreasing size={18}/></span><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={19}/></button><div><h2 id="assessment-title">Autoavaliação de SQL básico</h2><p>5 perguntas · resultado pessoal, sem certificação</p></div></div>{finished?<div className="assessment-complete"><span className="score-ring"><div><b>{score}</b><small>%</small></div></span><h3>{score>=80?"Ótimo trabalho!":score>=60?"Bom começo!":"Continue praticando."}</h3><p>Este resultado fica salvo somente neste navegador e não foi validado por uma avaliação supervisionada.</p><button className="primary-button" onClick={()=>onComplete(score)}>Salvar resultado <Check size={15}/></button></div>:<><div className="assessment-progress"><span>Pergunta {question+1} de {sqlQuestions.length}</span><div className="progress-track"><span style={{width:((question+1)/sqlQuestions.length*100)+"%"}}/></div></div><h3 className="assessment-question">{sqlQuestions[question].prompt}</h3><div className="assessment-options">{sqlQuestions[question].choices.map((choice,index)=><button key={choice} className={answers[question]===index?"assessment-option selected-option":"assessment-option"} onClick={()=>choose(index)}><span>{String.fromCharCode(65+index)}</span>{choice}</button>)}</div><div className="new-job-actions"><button className="save-button" disabled={question===0} onClick={()=>setQuestion(question-1)}>Voltar</button>{question<sqlQuestions.length-1?<button className="primary-button" disabled={answers[question]<0} onClick={()=>setQuestion(question+1)}>Próxima <ArrowRight size={15}/></button>:<button className="primary-button" disabled={answers[question]<0} onClick={()=>setFinished(true)}>Ver resultado <ArrowRight size={15}/></button>}</div></>}</div></div>;
 }
 
-/** Tela de entrada por papel e criação de perfil de demonstração, sem credenciais. */
+/**
+ * Tela inicial que separa candidato e empregador. Os formulários criam apenas
+ * perfis demonstrativos e passam os dados ao painel; não coletam senha, não
+ * validam identidade e não criam contas autenticadas.
+ */
 function EntryPage({mode,onMode,onEnter}:{mode:"choose"|"candidate"|"employer";onMode:(mode:"choose"|"candidate"|"employer")=>void;onEnter:(role:"candidate"|"employer",profile?:Profile,employer?:{name:string;website:string;description:string})=>void}) {
+  // Estados isolados para os campos dos dois formulários de demonstração.
   const [name,setName]=useState("");const [role,setRole]=useState("");const [city,setCity]=useState("");const [salary,setSalary]=useState("");const [skills,setSkills]=useState("");const [visible,setVisible]=useState(false);
   const [company,setCompany]=useState("");const [website,setWebsite]=useState("");const [description,setDescription]=useState("");
   return <main className="entry-page"><header className="entry-header"><a className="brand" href="#inicio" onClick={e=>{e.preventDefault();onMode("choose")}}><span className="brand-mark"><BriefcaseBusiness size={19}/></span><span>emprego<span className="brand-light">certo</span><i>.</i></span></a><span className="entry-local"><ShieldCheck size={14}/> Ambiente de demonstração local</span></header><section className="entry-content">{mode==="choose"?<><div className="eyebrow"><span className="live-dot"/> SEU PRÓXIMO PASSO COMEÇA AQUI</div><h1>Oportunidades certas<br/>para pessoas e empresas.</h1><p className="entry-subtitle">Escolha como você quer entrar na demonstração da plataforma.</p><div className="entry-cards"><button className="entry-card candidate-entry" onClick={()=>onMode("candidate")}><span className="entry-card-icon"><UserRound size={22}/></span><span className="entry-card-copy"><b>Sou candidato(a)</b><small>Encontre vagas, candidate-se e acompanhe seu desenvolvimento.</small></span><ArrowRight size={18}/></button><button className="entry-card employer-entry" onClick={()=>onMode("employer")}><span className="entry-card-icon"><Building2 size={22}/></span><span className="entry-card-copy"><b>Sou empregador</b><small>Publique vagas, avalie candidaturas e acompanhe seleções.</small></span><ArrowRight size={18}/></button></div><div className="entry-note"><ShieldCheck size={16}/><p>Esta versão salva as informações somente neste navegador. Cadastro e login reais, validação de e-mail e sincronização entre dispositivos dependem da integração com um serviço de autenticação.</p></div></>:mode==="candidate"?<div className="entry-form-card"><button className="entry-back" onClick={()=>onMode("choose")}><ArrowLeft size={15}/> Voltar</button><span className="entry-form-icon"><UserRound size={21}/></span><div className="eyebrow">ÁREA DO CANDIDATO</div><h2>Monte seu perfil inicial</h2><p>Use dados de demonstração para conhecer a experiência do candidato.</p><form onSubmit={e=>{e.preventDefault();onEnter("candidate",{...initialProfile,name,role,city,salary,skills:skills.split(",").map(x=>x.trim()).filter(Boolean),visible,bio:"",education:"",experience:""})}}><label className="field-label">Seu nome<input value={name} onChange={e=>setName(e.target.value)} placeholder="Nome e sobrenome" required/></label><label className="field-label">Cargo ou objetivo profissional<input value={role} onChange={e=>setRole(e.target.value)} placeholder="Ex.: Analista de dados" required/></label><div className="form-row"><label className="field-label">Cidade<input value={city} onChange={e=>setCity(e.target.value)} placeholder="Cidade, UF" required/></label><label className="field-label">Pretensão salarial<input value={salary} onChange={e=>setSalary(e.target.value)} placeholder="Ex.: R$ 5.000 – R$ 7.000" required/></label></div><label className="field-label">Competências separadas por vírgula<input value={skills} onChange={e=>setSkills(e.target.value)} placeholder="Ex.: Excel, atendimento, vendas"/></label><label className="entry-consent"><input type="checkbox" checked={visible} onChange={e=>setVisible(e.target.checked)}/> Quero permitir que empresas vejam meu perfil demonstrativo.</label><button className="primary-button entry-submit" type="submit">Continuar como candidato <ArrowRight size={16}/></button></form></div>:<div className="entry-form-card"><button className="entry-back" onClick={()=>onMode("choose")}><ArrowLeft size={15}/> Voltar</button><span className="entry-form-icon employer-icon"><Building2 size={21}/></span><div className="eyebrow">ÁREA DA EMPRESA</div><h2>Configure o perfil da empresa</h2><p>Crie um perfil demonstrativo para explorar publicação e gestão de vagas.</p><form onSubmit={e=>{e.preventDefault();onEnter("employer",undefined,{name:company,website,description})}}><label className="field-label">Nome da empresa<input value={company} onChange={e=>setCompany(e.target.value)} placeholder="Ex.: Acme Tecnologia" required/></label><label className="field-label">Site (opcional)<input value={website} onChange={e=>setWebsite(e.target.value)} placeholder="https://empresa.com.br"/></label><label className="field-label">Sobre a empresa<textarea className="profile-textarea" value={description} onChange={e=>setDescription(e.target.value)} rows={4} placeholder="Conte sobre a empresa e a equipe."/></label><button className="primary-button entry-submit" type="submit">Continuar como empresa <ArrowRight size={16}/></button></form></div>}</section><footer className="entry-footer">Emprego Certo · Protótipo para demonstração · Os dados não são enviados para um servidor.</footer></main>;
