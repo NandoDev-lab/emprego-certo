@@ -71,7 +71,7 @@ npm.cmd run dev
 
 ## Git e publicação
 
-O pedido anterior do usuário autorizou comentar partes funcionais em português e depois fazer commit/push. Esta rodada ainda não concluiu commit/push. Antes disso, inspecionar `git diff`, validar build/audit/config/reset/testes, verificar que nenhum segredo ou arquivo local foi incluído, criar commit claro e enviar a `main` somente após conferir o estado do remoto.
+O pedido anterior do usuário autorizou comentar partes funcionais em português e fazer commit/push. As alterações desta rodada foram commitadas e enviadas para `origin/main` em `114f654` (`Endurece privacidade e controles de acesso`). `git diff --cached --check` passou e os arquivos `.env`/credenciais não foram incluídos; `.env.example` continua apenas como modelo. O workspace estava limpo após o push. Se houver novas mudanças, repetir revisão e verificações antes de novo envio.
 
 ## Arquivos de referência
 
