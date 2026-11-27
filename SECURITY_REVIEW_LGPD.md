@@ -13,7 +13,7 @@
 
 ## Alterações técnicas incluídas
 
-A migração `supabase/migrations/202611270002_privacy_access_hardening.sql` complementa o esquema inicial. Ela:
+A migração `supabase/migrations/202611270002_privacy_access_hardening.sql` complementa o esquema inicial. A migração `202611270003_exact_monthly_salary.sql` substitui salário mínimo/máximo por um número mensal inteiro BRL. Se encontrar faixas diferentes existentes, falha sem escolher um dos valores; a migração precisa de resolução explícita antes de ser reaplicada. As alterações incluem:
 
 - nega leitura pública de empresas e vagas ainda não verificadas;
 - distingue recrutador de membro somente leitor para operações de contratação;
@@ -24,6 +24,9 @@ A migração `supabase/migrations/202611270002_privacy_access_hardening.sql` com
 - tira inserção direta de eventos de candidatura e tentativas de avaliação do cliente;
 - remove gabaritos de avaliações da leitura pública e reduz permissões SQL a colunas necessárias;
 - protege identidade/autor de vagas e feedback, e define aprovação de feedback no servidor.
+- remove os dados pré-carregados de candidatos e vagas fictícias; a limpeza versionada apaga as antigas chaves locais uma vez após a atualização;
+- substitui pontuações heurísticas de compatibilidade por contagem de igualdade textual de competências, sem afirmar que a contagem mede proficiência;
+- guarda cópia do perfil somente no momento do envio consentido da candidatura e apresenta essa cópia à empresa. Revogar o controle local apaga as cópias compartilhadas. Candidaturas antigas sem cópia autorizada não mostram o perfil ativo.
 
 Há testes pgTAP em `supabase/tests/` para privilégios e políticas RLS. Eles usam identidades descartáveis e rollback; não substituem teste de invasão, revisão independente, teste concorrente, teste da API hospedada ou validação jurídica.
 
@@ -66,3 +69,11 @@ Este documento não determina qual base legal deve ser usada pelo futuro serviç
 3. Não trate `record_privacy_consent` como prova automática de consentimento juridicamente válido: a interface ainda não foi integrada, não exibe o aviso que corresponde à versão e não registra evidência da apresentação do texto.
 4. Antes da integração, alinhe finalidade e textos da interface, migre dados por serviços do servidor quando necessário e preserve RLS como defesa adicional.
 5. Atualize `README.md`, `AGENTS.md` e `RELATORIO_CONTINUIDADE_ANTIGRAVITY.md` após mudanças de arquitetura ou estado.
+
+## Atualização técnica: autenticação local e console administrativa (27/11/2026)
+
+A integração Auth foi implementada para o Supabase configurado no Docker local. Cadastro e login usam e-mail/senha; o perfil e papel vêm de `public.profiles`. Criar conta empregadora chama `create_company` com sessão autenticada; a membresia define o acesso da organização. A interface não aceita papel admin pelo cadastro público. O painel administrativo usa RPCs SQL com verificação de papel e chave primária, sem chave `service_role` no browser. Para habilitar a conta do desenvolvedor localmente, depois de cadastrá-la, usar SQL Editor local: `update public.profiles set role = 'admin' where id = (select id from auth.users where email = 'EMAIL_EXATO');`, sair e entrar novamente.
+
+A console admin tem alteração via JSON e exclusão permanente das tabelas públicas listadas no componente. Operações administrativas respeitam dependências e podem excluir linhas em cascata. O banco local e os fluxos básicos de Auth não tornam o produto pronto para produção. A edição de perfil básico agora usa `profiles`; vagas, candidaturas, feedback, seleção, relatórios e competências continuam no estado local do navegador. Persistência e isolamento desses registros por usuário ainda são necessários antes de demonstração multi-conta.
+
+O Supabase local estava desligado no começo desta rodada; foi iniciado via Docker. O `.env.local` ignorado pelo Git contém somente URL local e chave pública anon. `supabase db reset` recriou apenas o banco local para aplicar as quatro migrações; isso apaga os registros que existiam no banco local.

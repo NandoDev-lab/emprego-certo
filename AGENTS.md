@@ -25,7 +25,7 @@ O desenvolvimento local abre em `http://localhost:3000`. O Next.js usa Turbopack
 - `src/app/globals.css`: apresentação responsiva e estilos de todas as telas.
 - `src/app/layout.tsx`: idioma e metadados globais.
 - `src/lucide-react.d.ts`: declaração de tipos usada pelos ícones Lucide nesta configuração.
-- `supabase/migrations/`: esquema PostgreSQL/Supabase, funções, gatilhos e políticas RLS versionadas.
+- `supabase/migrations/`: esquema PostgreSQL/Supabase, funções, gatilhos e políticas RLS versionadas. `202611270003_exact_monthly_salary.sql` exige salário bruto mensal único em reais.
 - `supabase/tests/`: verificações pgTAP de privilégios e comportamento RLS no banco local.
 - `SECURITY_REVIEW_LGPD.md`: revisão do estado de privacidade, controles feitos e bloqueios antes de dados reais.
 - `README.md`: recursos disponíveis, execução e limitações do protótipo.
@@ -39,6 +39,9 @@ O desenvolvimento local abre em `http://localhost:3000`. O Next.js usa Turbopack
 - A área de evolução oferece uma autoavaliação curta de SQL. O resultado é educativo e não representa certificação ou competência verificada.
 - Os dados persistem em `localStorage` apenas no navegador atual. As chaves usam o prefixo `ec-` (`ec-profile`, `ec-applications`, `ec-saved`, `ec-posted`, `ec-privacy-consent`, `ec-employer`, `ec-assessments` e `ec-demo-entered`).
 - O cálculo de compatibilidade no cliente é heurístico e explicável; não deve ser usado como critério automático de contratação.
+- O protótipo inicia sem candidatos, empresas ou vagas fictícias. O primeiro carregamento após a alteração `ec-exact-test-data-v1` remove as chaves locais dos exemplos anteriores. Os registros de teste criados depois disso ficam no navegador atual.
+- Vagas aceitam um único salário bruto mensal inteiro em reais; intervalos não são aceitos. A contagem de competências usa igualdade textual exata e não mede proficiência.
+- Uma candidatura aprovada no fluxo local guarda uma cópia dos dados do perfil no momento do envio. O empregador só vê essa cópia; registros antigos sem cópia autorizada não exibem o perfil ativo. Desativar o consentimento remove as cópias dos registros locais.
 
 ## Estado da integração com Supabase
 
@@ -55,13 +58,21 @@ Antes de conectar um projeto real:
 5. Mova leituras e gravações para serviços do servidor ou clientes configurados com políticas adequadas; nunca exponha `service_role` no navegador.
 6. Depois, conecte perfis, empresas, vagas, candidaturas, histórico, feedback, competências, avaliações, consentimentos e vagas salvas às tabelas correspondentes.
 
-Outras integrações ainda não implementadas: envio de e-mail, armazenamento seguro de currículos, redefinição de senha, administração real, testes supervisionados, notificações e implantação em produção.
+Pendentes: e-mail de produ??o, curr?culos em armazenamento privado, redefini??o de senha, testes supervisionados, notifica??es e implanta??o em produ??o.
 
 ## Cuidados ao alterar
 
 - Preserve o aviso de que os dados são locais e demonstrativos.
-- Mantenha salário obrigatório ao publicar vaga e consentimento explícito antes de compartilhar o perfil em uma candidatura.
+- Mantenha um único salário bruto mensal inteiro obrigatório ao cadastrar vaga e consentimento explícito antes de compartilhar o perfil em uma candidatura.
 - Não transforme pontuação heurística em decisão eliminatória automática.
 - Atualize esta orientação e o `README.md` quando mudar arquitetura, comandos ou limites funcionais.
 - Preserve consentimento específico por finalidade, princípio do menor privilégio e aviso de dados demonstrativos; não trate consentimento registrado no banco como prova automática de validade jurídica.
 - Depois de mudanças no código, execute `npm.cmd run build` para conferir compilação e tipos. Não invente credenciais nem aplique a migração sem acesso e revisão do ambiente correto.
+
+## Atualização: autenticação e painel administrativo
+
+A tela conectada ao Supabase usa cadastro/login Auth, carrega o papel do perfil no banco e impede que a interface candidato abra painéis de empresa. A conta empregadora cria uma organização via RPC autenticada e recebe vínculo de proprietário. O perfil principal lê e grava dados básicos no banco. A console administrativa permite consultar, alterar e excluir dados por RPCs SQL com verificação do papel `admin`; não expõe `service_role`.
+
+A migração `202611270004_admin_console.sql` exige promoção manual de administrador pelo operador com privilégio SQL. A instrução é `update public.profiles set role = 'admin' where id = (select id from auth.users where email = 'EMAIL_EXATO');` no SQL Editor do Supabase local, após o cadastro da conta do desenvolvedor. Cadastros públicos não aceitam papel admin.
+
+Perfil básico, competências, empresa, vagas, favoritos, candidaturas, consentimentos, etapas, feedback e snapshots são persistidos no PostgreSQL local com RLS. Autoavaliação e dados de formação/experiência ainda usam localStorage. Nenhum projeto Supabase hospedado está vinculado; use somente dados fictícios.

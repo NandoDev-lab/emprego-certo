@@ -80,3 +80,26 @@ O pedido anterior do usuário autorizou comentar partes funcionais em português
 - `supabase/tests/`: verificações pgTAP.
 - `SECURITY_REVIEW_LGPD.md`: limites técnicos, legais e operacionais de segurança/privacidade.
 - `README.md` e `AGENTS.md`: uso e restrições do repositório.
+
+## Correção de acesso entre áreas (27/11/2026)
+
+- Removido o controle que permitia alternar diretamente do perfil candidato para a área da empresa. A escolha da área da empresa ocorre somente no fluxo demonstrativo “Sou empregador”; o empregador pode sair para o fluxo candidato, mas o candidato não tem botão de promoção de papel.
+- Painéis e rotas de conteúdo da empresa continuam condicionados a `companyMode`, que só é definido no envio do formulário de entrada da empresa. Não existe autenticação real: qualquer pessoa pode iniciar um novo perfil de demonstração de empregador pela tela de entrada.
+- Validação: `npm.cmd run build` passou após a alteração. A área continua sendo uma demonstração local, sem isolamento de segurança de servidor.
+
+## Autenticação e administração local
+
+- Com `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` definidos, a tela inicial usa cadastro/login por e-mail e senha do Supabase Auth. Os perfis e empresas iniciais são criados no PostgreSQL local com RLS; nenhum segredo `service_role` é usado no navegador.
+- `.env.local` está configurado para `http://127.0.0.1:54321` e contém somente a chave pública local `anon`; o arquivo é ignorado pelo Git. Inicie Docker/Supabase com `npx.cmd supabase start -x logflare,vector`.
+- A criação de conta de empregador chama a função `create_company`, que associa o usuário autenticado como proprietário. Vagas, candidaturas, etapas e relatórios ainda usam o armazenamento local demonstrativo e não estão sincronizados ao banco.
+- A migração `202611270004_admin_console.sql` cria funções de listar, alterar e excluir registros do schema `public`, autorizadas apenas se `profiles.role = 'admin'`. Não conceda esse papel por cadastro público.
+- Para criar o administrador local: registre primeiro a conta pela aplicação; no Supabase Studio local (`http://127.0.0.1:54323`), execute `update public.profiles set role = 'admin' where id = (select id from auth.users where email = 'EMAIL_EXATO');`, substituindo pelo e-mail cadastrado. A conta deve sair e entrar novamente. Faça isso somente no banco local e para a conta do desenvolvedor.
+- A administração aplica alterações e exclusões permanentes. O acesso é protegido no banco, e as exclusões em cascata podem remover dados relacionados.
+
+## Estado final para demonstração (27/11/2026)
+
+- O endereço inicial abre a landing page; os caminhos públicos são candidato e empregador. O link administrativo especial permite somente entrar. A tela não cadastra administradores, e o banco verifica `profiles.role = 'admin'` antes de permitir o painel.
+- Cadastro/login Auth, perfil básico e competências, cadastro da empresa, vagas, vagas salvas, candidaturas, consentimentos, snapshot de perfil no envio, etapas e feedback agora usam o Supabase local com Docker e RLS. A jornada foi exercitada ponta a ponta: uma conta admin validou a empresa; o empregador publicou uma vaga; a candidata consultou e se candidatou; o snapshot, a etapa e o feedback foram lidos pelas contas corretas; revogar consentimento removeu a leitura do recrutador.
+- Para criar a primeira conta admin, cadastre-a pela landing como candidata; no Studio local execute `update public.profiles set role = 'admin' where id = (select id from auth.users where email = 'EMAIL_EXATO');`; saia e entre pelo acesso administrativo especial. No painel, em `companies`, use “Validar empresa”. A conta empregadora deve sair e entrar novamente para atualizar a permissão de publicação.
+- A última jornada ponta a ponta usou contas de teste descartáveis; `supabase db reset` removeu essas contas. Os testes pgTAP executados após a limpeza passaram: **53 verificações em 4 arquivos**. `npm.cmd run build` passou e `npx.cmd supabase config validate` indicou configuração válida. Supabase local e aplicação respondem em `127.0.0.1:54321` e `http://localhost:3000`.
+- Limites que permanecem: nenhuma conta foi criada para o usuário; cadastre suas próprias contas na landing. A autoavaliação e dados de formação/experiência ainda usam armazenamento local. O Auth está configurado para o Supabase local; projeto hospedado, e-mail de produção, recuperação de senha, currículo privado e publicação pública continuam pendentes. Use apenas dados fictícios.

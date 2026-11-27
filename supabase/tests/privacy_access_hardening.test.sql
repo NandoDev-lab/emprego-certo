@@ -1,6 +1,6 @@
 begin;
 
-select plan(20);
+select plan(26);
 
 select ok(
   (select relrowsecurity from pg_class where oid = 'public.profiles'::regclass),
@@ -82,6 +82,24 @@ select ok(
   not public.is_company_recruiter_for_any_company(gen_random_uuid()),
   'sem identidade autenticada, a verificação de recrutador nega acesso'
 );
+select ok(
+  exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'salary_monthly'),
+  'perfil armazena pretensão como um valor mensal único'
+);
+select ok(
+  not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name in ('salary_min', 'salary_max')),
+  'perfil não mantém colunas de salário mínimo e máximo'
+);
+select ok(
+  (select is_nullable = 'NO' from information_schema.columns where table_schema = 'public' and table_name = 'jobs' and column_name = 'salary_monthly'),
+  'cada vaga exige salário mensal exato'
+);
+select ok(
+  exists (select 1 from pg_constraint where conrelid = 'public.jobs'::regclass and conname = 'jobs_salary_currency_brl'),
+  'vagas registram moeda BRL explicitamente'
+);
 
+select ok(not has_column_privilege('authenticated', 'public.applications', 'candidate_snapshot', 'INSERT'), 'candidate snapshot is server generated');
+select ok(has_column_privilege('authenticated', 'public.profiles', 'declared_skills', 'UPDATE'), 'candidate can save declared skills on own profile');
 select * from finish();
 rollback;
